@@ -108,8 +108,8 @@ def evaluate(num_votes):
         for i in range(len(probeList)):
             probeDis = list()
             for j in range(len(galleryList)):
-                dis = cos(probeList[i],galleryList[j])
-                # dis = np.sqrt(np.sum(np.square(probeList[i] - galleryList[j])))
+                # dis = cos(probeList[i],galleryList[j])
+                dis = np.sqrt(np.sum(np.square(probeList[i] - galleryList[j])))
                 probeDis.append(dis)
             minnum  = min(probeDis)
             predict = probeDis.index(minnum)
