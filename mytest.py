@@ -6,7 +6,7 @@ import socket
 import importlib
 import time
 import os
-import scipy.misc
+import scipy
 import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
@@ -34,21 +34,18 @@ GPU_INDEX = FLAGS.gpu
 MODEL = importlib.import_module(FLAGS.model) # import network module
 DUMP_DIR = FLAGS.dump_dir
 if not os.path.exists(DUMP_DIR): os.mkdir(DUMP_DIR)
-LOG_FOUT = open(os.path.join('dump', 'test_log_evaluate.txt'), 'w')
+LOG_FOUT = open(os.path.join('dump', 'test_log_evaluate_bu4d_5_casia_frgc_deeper.txt'), 'w')
 LOG_FOUT.write(str(FLAGS)+'\n')
 
-NUM_CLASSES = 10
-SHAPE_NAMES = [line.rstrip() for line in \
-    open(os.path.join(BASE_DIR, 'data/bu3d_frontal_600/test_shape_names.txt'))]
 
-MODEL_PATH = 'log/model.ckpt'
+MODEL_PATH = 'log/model-deeper_casia_bu4d_frgc_2.ckpt'
 HOSTNAME = socket.gethostname()
 
 # ModelNet40 official train/test split
 TRAIN_FILES = provider.getDataFiles( \
-    os.path.join(BASE_DIR, 'data/bu3d_frontal_600/test_gallery_files.txt'))
+    os.path.join(BASE_DIR, 'data/bu3d/test_gallery_files.txt'))
 TEST_FILES = provider.getDataFiles(\
-    os.path.join(BASE_DIR, 'data/bu3d_frontal_600/test_probe_files.txt'))
+    os.path.join(BASE_DIR, 'data/bu3d/test_probe_files.txt'))
 
 def log_string(out_str):
     LOG_FOUT.write(out_str+'\n')
@@ -56,28 +53,19 @@ def log_string(out_str):
     print(out_str)
 
 
-def cos(vector1,vector2):
-    dot_product = 0.0;
-    normA = 0.0;
-    normB = 0.0;
-    for a,b in zip(vector1,vector2):
-        dot_product += a*b
-        normA += a**2
-        normB += b**2
-    return dot_product / ((normA*normB)**0.5)
-
 def evaluate(num_votes):
     probeList = list()
     pgDis = list()
     galleryList = list()
-    probeNum = 37
-    galleryNUm = 5
+    probeNum = 24
+    galleryNUm = 1
     with tf.device('/gpu:' + str(GPU_INDEX)):
         pointclouds_pl, labels_pl = MODEL.placeholder_inputs(BATCH_SIZE, NUM_POINT)
         is_training_pl = tf.placeholder(tf.bool, shape=())
         pos, ftr = MODEL.get_model(pointclouds_pl,tf.constant(False))
 
     SAVER = tf.train.Saver()
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.7)
     with tf.Session() as sess:
         SAVER.restore(sess, MODEL_PATH)
         for fn in range(len(TEST_FILES)):
@@ -87,7 +75,10 @@ def evaluate(num_votes):
 
             file_size = current_data.shape[0]
             for n in range(file_size):
-                feed_dict = {pointclouds_pl: current_data[n:n+1,:,:], labels_pl: test_label[n:n+1]}
+                # log_string("probe num % f" % n)
+                # jittered_data = provider.rotate_point_cloud(current_data[n:n+1,:,:])
+                jittered_data = current_data[n:n+1,:,:]
+                feed_dict = {pointclouds_pl: jittered_data, labels_pl: test_label[n:n+1]}
                 res1, res2 = sess.run([pos, ftr], feed_dict=feed_dict)
                 probeList.append(res1[0])
                 # print res1[0]
@@ -102,28 +93,29 @@ def evaluate(num_votes):
             for n in range(file_size):
                 feed_dict = {pointclouds_pl: current_data[n:n+1,:,:], labels_pl: train_label[n:n+1]}
                 res1, res2 = sess.run([pos, ftr], feed_dict=feed_dict)
+
                 galleryList.append(res1[0])
         # print train_label
         ###############################
         for i in range(len(probeList)):
             probeDis = list()
             for j in range(len(galleryList)):
-                # dis = cos(probeList[i],galleryList[j])
-                dis = np.sqrt(np.sum(np.square(probeList[i] - galleryList[j])))
+                dis = scipy.spatial.distance.cosine(probeList[i],galleryList[j])
+                # dis = np.sqrt(np.sum(np.square(probeList[i] - galleryList[j])))
                 probeDis.append(dis)
             minnum  = min(probeDis)
             predict = probeDis.index(minnum)
 
             pgDis.append(predict // galleryNUm)
-
+        # print(pgDis)
 
         accuNum = 0
         classNum = 0
         for i in range(len(pgDis)):
-            if i %probeNum == 0:
-                classNum = classNum+1
-            if pgDis[i] in range(classNum,classNum+galleryNUm):
-                accuNum  = accuNum + 1
+            # if pgDis[i]  == i // probeNum:
+            #     accuNum  = accuNum + 1
+            if pgDis[i] == test_label[i]:
+                accuNum = accuNum + 1
         print accuNum
 
 
